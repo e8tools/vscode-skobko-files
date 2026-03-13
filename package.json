@@ -1,11 +1,12 @@
 {
   "name": "vscode-skobko-files",
   "displayName": "Skobko Files Support",
-  "description": "Поддержка скобко-файлов: подсветка вложенных скобок и показ пути элемента element[0][1][3].",
+  "description": "Поддержка скобко-файлов",
   "version": "0.0.1",
   "license": "MPL-2.0",
   "author": "dmpas",
   "publisher": "dmpas",
+  "icon": "icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
