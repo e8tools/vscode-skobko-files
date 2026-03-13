@@ -230,18 +230,31 @@ export function activate(context: vscode.ExtensionContext) {
 
       const patternNoExt = new vscode.RelativePattern(workspaceFolder, `**/${guidText}`);
       const patternWithExt = new vscode.RelativePattern(workspaceFolder, `**/${guidText}.*`);
+      const patternInDir = new vscode.RelativePattern(workspaceFolder, `**/${guidText}/**`);
+      const patternInSubDir = new vscode.RelativePattern(workspaceFolder, `**/${guidText}.*/**`);
 
-      const [noExtMatches, withExtMatches] = await Promise.all([
+      const [noExtMatches, withExtMatches, inDirMatches, inSubDirMatches] = await Promise.all([
         vscode.workspace.findFiles(patternNoExt, '**/node_modules/**', 20),
         vscode.workspace.findFiles(patternWithExt, '**/node_modules/**', 20),
+        vscode.workspace.findFiles(patternInDir, '**/node_modules/**', 50),
+        vscode.workspace.findFiles(patternInSubDir, '**/node_modules/**', 50),
       ]);
 
-      const allMatches = [...noExtMatches, ...withExtMatches];
-      if (allMatches.length === 0) {
+      const seen = new Set<string>();
+      const uniqueMatches: vscode.Uri[] = [];
+      for (const uri of [...noExtMatches, ...withExtMatches, ...inDirMatches, ...inSubDirMatches]) {
+        const key = uri.toString();
+        if (!seen.has(key)) {
+          seen.add(key);
+          uniqueMatches.push(uri);
+        }
+      }
+
+      if (uniqueMatches.length === 0) {
         return undefined;
       }
 
-      const locations: vscode.Location[] = allMatches.map(uri => {
+      const locations: vscode.Location[] = uniqueMatches.map(uri => {
         return new vscode.Location(uri, new vscode.Position(0, 0));
       });
 
@@ -249,11 +262,40 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }
 
+  const onDocumentOpen = vscode.workspace.onDidOpenTextDocument(async (document) => {
+    if (document.languageId !== 'plaintext') {
+      return;
+    }
+
+    const fileName = document.uri.path.split('/').pop() || '';
+    const extMatch = fileName.match(/\.([^.]+)$/);
+    const extension = extMatch ? extMatch[1] : null;
+    
+    const hasNoExtension = extension === null;
+    const hasSingleDigitExtension = extension !== null && /^\d$/.test(extension);
+    
+    if (!hasNoExtension && !hasSingleDigitExtension) {
+      return;
+    }
+
+    const text = document.getText();
+    if (!text.trimStart().startsWith('{')) {
+      return;
+    }
+
+    try {
+      await vscode.languages.setTextDocumentLanguage(document, 'skobko');
+    } catch {
+      // ignore errors
+    }
+  });
+
   context.subscriptions.push(
     vscode.languages.registerDocumentSymbolProvider(selector, new SkobkoSymbolProvider()),
     vscode.languages.registerFoldingRangeProvider(selector, new SkobkoFoldingRangeProvider()),
     vscode.languages.registerDefinitionProvider(selector, new SkobkoDefinitionProvider()),
     vscode.languages.registerInlayHintsProvider(selector, new SkobkoInlayHintsProvider()),
+    onDocumentOpen,
   );
 }
 
