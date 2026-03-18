@@ -1,5 +1,13 @@
 import * as assert from 'assert';
-import { tokenize, parseGuidsMarkdown, isDigit, isDigitOrDateChar, isBase64Char } from '../src/parser';
+import {
+  tokenize,
+  parseGuidsMarkdown,
+  isDigit,
+  isDigitOrDateChar,
+  isBase64Char,
+  extractSkobkoObjectRange,
+  countDirectChildElementsForOpeningBraces,
+} from '../src/parser';
 
 describe('tokenize', () => {
   it('should tokenize empty string', () => {
@@ -141,6 +149,44 @@ describe('tokenize', () => {
   });
 });
 
+describe('extractSkobkoObjectRange', () => {
+  it('should extract outer object when cursor on first `{`', () => {
+    const text = '{{}}';
+    const range = extractSkobkoObjectRange(text, 0);
+    assert.deepStrictEqual(range, { start: 0, end: 4 });
+    assert.strictEqual(text.slice(range!.start, range!.end), '{{}}');
+  });
+
+  it('should extract inner object when cursor on nested `{`', () => {
+    const text = '{{}}';
+    const range = extractSkobkoObjectRange(text, 1);
+    assert.deepStrictEqual(range, { start: 1, end: 3 });
+    assert.strictEqual(text.slice(range!.start, range!.end), '{}');
+  });
+
+  it('should extract inner object when cursor inside nested object', () => {
+    const text = '{{}}';
+    // позиция на `}` вложенного объекта
+    const range = extractSkobkoObjectRange(text, 2);
+    assert.deepStrictEqual(range, { start: 1, end: 3 });
+    assert.strictEqual(text.slice(range!.start, range!.end), '{}');
+  });
+
+  it('should handle deeper nesting', () => {
+    const text = '{{{}}}';
+    // курсор на `{` третьего уровня
+    const range = extractSkobkoObjectRange(text, 2);
+    assert.deepStrictEqual(range, { start: 2, end: 4 });
+    assert.strictEqual(text.slice(range!.start, range!.end), '{}');
+  });
+
+  it('should return undefined when no opening `{` before cursor', () => {
+    const text = 'abc';
+    const range = extractSkobkoObjectRange(text, 1);
+    assert.strictEqual(range, undefined);
+  });
+});
+
 describe('parseGuidsMarkdown', () => {
   it('should return empty map for empty string', () => {
     const map = parseGuidsMarkdown('');
@@ -257,5 +303,58 @@ describe('isBase64Char', () => {
     assert.strictEqual(isBase64Char('-'), false);
     assert.strictEqual(isBase64Char(' '), false);
     assert.strictEqual(isBase64Char('@'), false);
+  });
+});
+
+describe('countDirectChildElementsForOpeningBraces', () => {
+  it('should return empty map for input without braces', () => {
+    const tokens = tokenize('abc');
+    const map = countDirectChildElementsForOpeningBraces(tokens);
+    assert.strictEqual(map.size, 0);
+  });
+
+  it('should count empty braces', () => {
+    const map = countDirectChildElementsForOpeningBraces(tokenize('{}'));
+    assert.strictEqual(map.size, 1);
+    assert.strictEqual(map.get(0), 0);
+  });
+
+  it('should count nested braces non-recursively', () => {
+    const text = '{{}}';
+    const map = countDirectChildElementsForOpeningBraces(tokenize(text));
+    assert.strictEqual(map.get(0), 1); // outer contains inner object as one direct element
+    assert.strictEqual(map.get(1), 0); // inner contains no elements
+  });
+
+  it('should count primitive elements', () => {
+    const map = countDirectChildElementsForOpeningBraces(tokenize('{1,2}'));
+    assert.strictEqual(map.get(0), 2);
+  });
+
+  it('should count direct children mixed with nested objects', () => {
+    const text = '{"x",{1},{2,3}}';
+    const map = countDirectChildElementsForOpeningBraces(tokenize(text));
+
+    const bracePositions: number[] = [];
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '{') {
+        bracePositions.push(i);
+      }
+    }
+
+    assert.deepStrictEqual(bracePositions, [0, 5, 9]);
+    assert.strictEqual(map.get(bracePositions[0]), 3); // "x", {1}, {2,3}
+    assert.strictEqual(map.get(bracePositions[1]), 1); // {1}
+    assert.strictEqual(map.get(bracePositions[2]), 2); // {2,3}
+  });
+
+  it('should ignore trailing comma', () => {
+    const map = countDirectChildElementsForOpeningBraces(tokenize('{1,}'));
+    assert.strictEqual(map.get(0), 1);
+  });
+
+  it('should count elements across whitespace', () => {
+    const map = countDirectChildElementsForOpeningBraces(tokenize('{ 1 , {2} , 3 }'));
+    assert.strictEqual(map.get(0), 3);
   });
 });

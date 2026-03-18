@@ -157,3 +157,120 @@ export function isBase64Char(ch: string): boolean {
     ch === '='
   );
 }
+
+/**
+ * Находит диапазон "скобочного объекта" в тексте по позиции курсора.
+ *
+ * Логика:
+ * - от `cursorOffset` идём назад до ближайшей открывающейся `{`
+ * - затем берём всё содержимое начиная с этой `{` учитывая вложенность до
+ *   `}` который закрывает найденную начальную `{`
+ *
+ * Открывающая и закрывающая скобки попадают в результат.
+ */
+export function extractSkobkoObjectRange(
+  text: string,
+  cursorOffset: number,
+): { start: number; end: number } | undefined {
+  const tokens = tokenize(text);
+  const len = text.length;
+  const offset = Math.max(0, Math.min(cursorOffset, len));
+
+  // 1) Находим ближайшую (слева от курсора) открывающую скобку `{`.
+  let openTokenIndex = -1;
+
+  // Если курсор стоит на `{`, берем именно её.
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.kind === 'lbrace' && t.start <= offset && offset < t.end) {
+      openTokenIndex = i;
+      break;
+    }
+  }
+
+  // Иначе идём назад и берем последнюю `{` перед курсором.
+  if (openTokenIndex === -1) {
+    for (let i = tokens.length - 1; i >= 0; i--) {
+      const t = tokens[i];
+      if (t.kind === 'lbrace' && t.start < offset) {
+        openTokenIndex = i;
+        break;
+      }
+    }
+  }
+
+  if (openTokenIndex === -1) {
+    return undefined;
+  }
+
+  const openToken = tokens[openTokenIndex]!;
+
+  // 2) Идём вправо, считаем вложенность и останавливаемся на `}`,
+  // который закрывает начальную `{`.
+  let depth = 0;
+  for (let i = openTokenIndex; i < tokens.length; i++) {
+    const t = tokens[i]!;
+    if (t.kind === 'lbrace') {
+      depth++;
+    } else if (t.kind === 'rbrace') {
+      depth--;
+      if (depth === 0) {
+        return { start: openToken.start, end: t.end };
+      }
+    }
+  }
+
+  // Если скобки не сбалансированы.
+  return undefined;
+}
+
+/**
+ * Подсчитывает количество *прямых* (нерекурсивных) элементов для каждого открывающего `{`.
+ *
+ * Правило "прямых":
+ * - вложенный `{ ... }` считается одним элементом для родительского `{ ... }`
+ * - элементы внутри вложенного `{ ... }` не учитываются в счётчике родителя
+ * - запятые и пробелы не считаются
+ */
+export function countDirectChildElementsForOpeningBraces(tokens: Token[]): Map<number, number> {
+  const counts = new Map<number, number>();
+
+  interface Frame {
+    openToken: Token;
+    directCount: number;
+  }
+
+  const stack: Frame[] = [];
+
+  for (const t of tokens) {
+    if (t.kind === 'lbrace') {
+      // Вложенный объект — это один элемент для текущего (родительского) кадра.
+      if (stack.length > 0) {
+        stack[stack.length - 1].directCount++;
+      }
+
+      stack.push({ openToken: t, directCount: 0 });
+      continue;
+    }
+
+    if (t.kind === 'rbrace') {
+      const frame = stack.pop();
+      if (frame) {
+        counts.set(frame.openToken.start, frame.directCount);
+      }
+      continue;
+    }
+
+    // Игнорируем разделители/форматирование.
+    if (t.kind === 'comma' || t.kind === 'whitespace') {
+      continue;
+    }
+
+    // Любой "не-скобочный" токен внутри `{ ... }` — это один прямой элемент.
+    if (stack.length > 0) {
+      stack[stack.length - 1].directCount++;
+    }
+  }
+
+  return counts;
+}

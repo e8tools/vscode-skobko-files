@@ -18,7 +18,9 @@
     "Other",
     "Programming Languages"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/src/extension.js",
   "contributes": {
     "languages": [
@@ -41,7 +43,22 @@
         "path": "./syntaxes/skobko.tmLanguage.json"
       }
     ],
-    "commands": []
+    "configuration": {
+      "title": "Skobko Files",
+      "properties": {
+        "skobkoFiles.inlayHints.showBraceElementCounts": {
+          "type": "boolean",
+          "default": false,
+          "description": "Показывать количество прямых (нерекурсивных) элементов справа от открывающейся фигурной скобки `{`."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "skobkoFiles.extractCurrentObjectToNewFile",
+        "title": "Выделить текущий объект в новый файл"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

@@ -3,7 +3,13 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import * as vscode from 'vscode';
-import { Token, tokenize, parseGuidsMarkdown } from './parser';
+import {
+  Token,
+  tokenize,
+  parseGuidsMarkdown,
+  extractSkobkoObjectRange,
+  countDirectChildElementsForOpeningBraces,
+} from './parser';
 
 export function activate(context: vscode.ExtensionContext) {
   const selector: vscode.DocumentSelector = { language: 'skobko', scheme: 'file' };
@@ -143,13 +149,34 @@ export function activate(context: vscode.ExtensionContext) {
       _range: vscode.Range,
       _token: vscode.CancellationToken,
     ): Promise<vscode.InlayHint[]> {
-      const guidMap = await getGuidMap();
-      if (guidMap.size === 0) {
-        return [];
-      }
-
       const text = document.getText();
       const hints: vscode.InlayHint[] = [];
+
+      const config = vscode.workspace.getConfiguration('skobkoFiles');
+      const showBraceElementCounts = config.get<boolean>('inlayHints.showBraceElementCounts', false);
+
+      if (showBraceElementCounts) {
+        const tokens = tokenize(text);
+        const counts = countDirectChildElementsForOpeningBraces(tokens);
+
+        for (const t of tokens) {
+          if (t.kind !== 'lbrace') {
+            continue;
+          }
+
+          const count = counts.get(t.start) ?? 0;
+          if (count < 2) {
+            continue;
+          }
+          const position = document.positionAt(t.end);
+          hints.push(new vscode.InlayHint(position, `(${count}) `, vscode.InlayHintKind.Parameter));
+        }
+      }
+
+      const guidMap = await getGuidMap();
+      if (guidMap.size === 0) {
+        return hints;
+      }
 
       const guidRegex =
         /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
@@ -287,11 +314,40 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
+  const extractCurrentObjectToNewFile = vscode.commands.registerCommand(
+    'skobkoFiles.extractCurrentObjectToNewFile',
+    async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        return;
+      }
+
+      const document = editor.document;
+      const text = document.getText();
+      const cursorOffset = document.offsetAt(editor.selection.active);
+
+      const range = extractSkobkoObjectRange(text, cursorOffset);
+      if (!range) {
+        vscode.window.showErrorMessage('Не удалось определить текущий скобочный объект под курсором.');
+        return;
+      }
+
+      const content = text.slice(range.start, range.end);
+      const newDocument = await vscode.workspace.openTextDocument({
+        content,
+        language: 'skobko',
+      });
+
+      await vscode.window.showTextDocument(newDocument, { preview: false });
+    },
+  );
+
   context.subscriptions.push(
     vscode.languages.registerDocumentSymbolProvider(selector, new SkobkoSymbolProvider()),
     vscode.languages.registerFoldingRangeProvider(selector, new SkobkoFoldingRangeProvider()),
     vscode.languages.registerDefinitionProvider(selector, new SkobkoDefinitionProvider()),
     vscode.languages.registerInlayHintsProvider(selector, new SkobkoInlayHintsProvider()),
+    extractCurrentObjectToNewFile,
     onDocumentOpen,
   );
 }
