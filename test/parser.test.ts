@@ -148,7 +148,7 @@ describe('parseGuidsMarkdown', () => {
   });
 
   it('should parse single GUID entry', () => {
-    const markdown = '| SomeName | 12345678-1234-1234-1234-123456789abc |';
+    const markdown = '| 12345678-1234-1234-1234-123456789abc | SomeName |';
     const map = parseGuidsMarkdown(markdown);
     assert.strictEqual(map.size, 1);
     assert.strictEqual(map.get('12345678-1234-1234-1234-123456789abc'), 'SomeName');
@@ -156,10 +156,10 @@ describe('parseGuidsMarkdown', () => {
 
   it('should parse multiple GUID entries', () => {
     const markdown = `
-| Name | GUID |
+| GUID | Name |
 |------|------|
-| First | 11111111-1111-1111-1111-111111111111 |
-| Second | 22222222-2222-2222-2222-222222222222 |
+| 11111111-1111-1111-1111-111111111111 | First |
+| 22222222-2222-2222-2222-222222222222 | Second |
 `;
     const map = parseGuidsMarkdown(markdown);
     assert.strictEqual(map.size, 2);
@@ -168,7 +168,7 @@ describe('parseGuidsMarkdown', () => {
   });
 
   it('should lowercase GUID keys', () => {
-    const markdown = '| Test | ABCDEF12-3456-7890-ABCD-EF1234567890 |';
+    const markdown = '| ABCDEF12-3456-7890-ABCD-EF1234567890 | Test |';
     const map = parseGuidsMarkdown(markdown);
     assert.strictEqual(map.get('abcdef12-3456-7890-abcd-ef1234567890'), 'Test');
   });
@@ -176,7 +176,7 @@ describe('parseGuidsMarkdown', () => {
   it('should skip lines without pipes', () => {
     const markdown = `
 Some text without pipes
-| ValidName | 12345678-1234-1234-1234-123456789abc |
+| 12345678-1234-1234-1234-123456789abc | ValidName |
 Another line
 `;
     const map = parseGuidsMarkdown(markdown);

@@ -122,8 +122,8 @@ export function parseGuidsMarkdown(text: string): Map<string, string> {
       continue;
     }
 
-    const name = parts[1];
-    const guid = parts[2];
+    const guid = parts[1];
+    const name = parts[2];
 
     if (!name || !guid) {
       continue;
