@@ -139,6 +139,52 @@ export function parseGuidsMarkdown(text: string): Map<string, string> {
   return map;
 }
 
+export function parseOpcodesMarkdown(text: string): Map<number, string> {
+  const map = new Map<number, string>();
+  const lines = text.split(/\r?\n/);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    if (trimmed.startsWith('|')) {
+      const parts = trimmed.split('|').map(p => p.trim());
+      if (parts.length < 4) {
+        continue;
+      }
+
+      const opcodeRaw = parts[1];
+      const asm = parts[2];
+      const opcode = Number.parseInt(opcodeRaw, 10);
+      if (Number.isNaN(opcode) || !asm || asm === 'ASM') {
+        continue;
+      }
+
+      map.set(opcode, asm);
+      continue;
+    }
+
+    if (trimmed.includes('\t')) {
+      const parts = trimmed.split('\t').map(p => p.trim());
+      if (parts.length < 2) {
+        continue;
+      }
+
+      const opcode = Number.parseInt(parts[0], 10);
+      const asm = parts[1];
+      if (Number.isNaN(opcode) || !asm || asm === 'ASM') {
+        continue;
+      }
+
+      map.set(opcode, asm);
+    }
+  }
+
+  return map;
+}
+
 export function isDigit(ch: string): boolean {
   return ch >= '0' && ch <= '9';
 }

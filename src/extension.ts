@@ -7,16 +7,119 @@ import {
   Token,
   tokenize,
   parseGuidsMarkdown,
+  parseOpcodesMarkdown,
   extractSkobkoObjectRange,
   countDirectChildElementsForOpeningBraces,
   formatWithAlignment,
   formatNormally,
 } from './parser';
 
+interface ParsedPrimitiveNode {
+  type: 'primitive';
+  token: Token;
+}
+
+interface ParsedObjectNode {
+  type: 'object';
+  openToken: Token;
+  children: ParsedValueNode[];
+}
+
+type ParsedValueNode = ParsedPrimitiveNode | ParsedObjectNode;
+
+function parseSkobkoValueNodes(tokens: Token[]): ParsedValueNode[] | undefined {
+  let i = 0;
+
+  const skipIgnorable = () => {
+    while (i < tokens.length) {
+      const kind = tokens[i].kind;
+      if (kind !== 'whitespace' && kind !== 'comma') {
+        break;
+      }
+      i++;
+    }
+  };
+
+  const parseValue = (): ParsedValueNode | undefined => {
+    skipIgnorable();
+    if (i >= tokens.length) {
+      return undefined;
+    }
+
+    const token = tokens[i];
+    if (token.kind === 'rbrace') {
+      return undefined;
+    }
+
+    if (token.kind === 'lbrace') {
+      i++;
+      const children: ParsedValueNode[] = [];
+
+      while (i < tokens.length) {
+        skipIgnorable();
+        if (i >= tokens.length) {
+          return undefined;
+        }
+
+        if (tokens[i].kind === 'rbrace') {
+          i++;
+          return { type: 'object', openToken: token, children };
+        }
+
+        const child = parseValue();
+        if (!child) {
+          return undefined;
+        }
+        children.push(child);
+      }
+
+      return undefined;
+    }
+
+    i++;
+    return { type: 'primitive', token };
+  };
+
+  const roots: ParsedValueNode[] = [];
+  while (i < tokens.length) {
+    skipIgnorable();
+    if (i >= tokens.length) {
+      break;
+    }
+
+    if (tokens[i].kind === 'rbrace') {
+      return undefined;
+    }
+
+    const value = parseValue();
+    if (!value) {
+      return undefined;
+    }
+    roots.push(value);
+  }
+
+  return roots;
+}
+
+function unquoteStringToken(text: string): string {
+  if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
+function isNamedImageFile(document: vscode.TextDocument): boolean {
+  const fileName = document.uri.path.split('/').pop() ?? '';
+  const extensionMatch = fileName.match(/^(.*)\.([^.]+)$/);
+  const baseName = extensionMatch ? extensionMatch[1] : fileName;
+  return baseName.toLowerCase() === 'image';
+}
+
 export function activate(context: vscode.ExtensionContext) {
   const selector: vscode.DocumentSelector = { language: 'skobko', scheme: 'file' };
 
   let guidMapPromise: Promise<Map<string, string>> | undefined;
+  let opcodeMapPromise: Promise<Map<number, string>> | undefined;
 
   const getGuidMap = async (): Promise<Map<string, string>> => {
     if (guidMapPromise) {
@@ -35,6 +138,25 @@ export function activate(context: vscode.ExtensionContext) {
     })();
 
     return guidMapPromise;
+  };
+
+  const getOpcodeMap = async (): Promise<Map<number, string>> => {
+    if (opcodeMapPromise) {
+      return opcodeMapPromise;
+    }
+
+    opcodeMapPromise = (async () => {
+      const opcodesUri = vscode.Uri.joinPath(context.extensionUri, 'docs', 'opcodes.md');
+
+      try {
+        const doc = await vscode.workspace.openTextDocument(opcodesUri);
+        return parseOpcodesMarkdown(doc.getText());
+      } catch {
+        return new Map<number, string>();
+      }
+    })();
+
+    return opcodeMapPromise;
   };
 
   class SkobkoSymbolProvider implements vscode.DocumentSymbolProvider {
@@ -178,13 +300,13 @@ export function activate(context: vscode.ExtensionContext) {
       _token: vscode.CancellationToken,
     ): Promise<vscode.InlayHint[]> {
       const text = document.getText();
+      const tokens = tokenize(text);
       const hints: vscode.InlayHint[] = [];
 
       const config = vscode.workspace.getConfiguration('skobkoFiles');
       const showBraceElementCounts = config.get<boolean>('inlayHints.showBraceElementCounts', false);
 
       if (showBraceElementCounts) {
-        const tokens = tokenize(text);
         const counts = countDirectChildElementsForOpeningBraces(tokens);
 
         for (const t of tokens) {
@@ -198,6 +320,71 @@ export function activate(context: vscode.ExtensionContext) {
           }
           const position = document.positionAt(t.end);
           hints.push(new vscode.InlayHint(position, `(${count}) `, vscode.InlayHintKind.Parameter));
+        }
+      }
+
+      if (isNamedImageFile(document)) {
+        const opcodeMap = await getOpcodeMap();
+        if (opcodeMap.size !== 0) {
+          const roots = parseSkobkoValueNodes(tokens);
+          if (roots) {
+            const walk = (node: ParsedValueNode) => {
+              if (node.type !== 'object') {
+                return;
+              }
+
+              const first = node.children[0];
+              const firstTokenText =
+                first && first.type === 'primitive'
+                  ? text.slice(first.token.start, first.token.end)
+                  : '';
+              const blockType = unquoteStringToken(firstTokenText);
+              if (blockType === 'Cmd') {
+                for (let i = 3; i < node.children.length; i++) {
+                  const opcodeObject = node.children[i];
+                  if (opcodeObject.type !== 'object' || opcodeObject.children.length < 2) {
+                    continue;
+                  }
+
+                  const opcodeValue = opcodeObject.children[0];
+                  const argumentValue = opcodeObject.children[1];
+                  if (opcodeValue.type !== 'primitive' || argumentValue.type !== 'primitive') {
+                    continue;
+                  }
+
+                  const opcodeText = text.slice(opcodeValue.token.start, opcodeValue.token.end);
+                  const opcode = Number.parseInt(opcodeText, 10);
+                  if (Number.isNaN(opcode)) {
+                    continue;
+                  }
+
+                  const opcodeAsm = opcodeMap.get(opcode);
+                  if (!opcodeAsm) {
+                    continue;
+                  }
+
+                  const argument = text.slice(argumentValue.token.start, argumentValue.token.end);
+                  const line = document.positionAt(opcodeObject.openToken.start).line;
+                  const position = new vscode.Position(line, 16);
+                  hints.push(
+                    new vscode.InlayHint(
+                      position,
+                      `${opcodeAsm} ${argument}`,
+                      vscode.InlayHintKind.Parameter,
+                    ),
+                  );
+                }
+              }
+
+              for (const child of node.children) {
+                walk(child);
+              }
+            };
+
+            for (const root of roots) {
+              walk(root);
+            }
+          }
         }
       }
 
