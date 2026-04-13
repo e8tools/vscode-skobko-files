@@ -2,7 +2,7 @@
   "name": "vscode-skobko-files",
   "displayName": "Skobko Files Support",
   "description": "Поддержка скобко-файлов",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "license": "MPL-2.0",
   "author": "dmpas",
   "publisher": "dmpas",
