@@ -61,6 +61,21 @@ describe('tokenize', () => {
     assert.strictEqual(tokens[0].kind, 'string');
   });
 
+  it('should tokenize string with doubled-quote escapes as one string token', () => {
+    const input = '"Some string with ""internal"" quote"';
+    const tokens = tokenize(input);
+    assert.strictEqual(tokens.length, 1);
+    assert.strictEqual(tokens[0].kind, 'string');
+    assert.strictEqual(tokens[0].start, 0);
+    assert.strictEqual(tokens[0].end, input.length);
+  });
+
+  it('should count one direct element for string with internal doubled quotes', () => {
+    const text = '{"Some string with ""internal"" quote"}';
+    const map = countDirectChildElementsForOpeningBraces(tokenize(text));
+    assert.strictEqual(map.get(0), 1);
+  });
+
   it('should tokenize GUID', () => {
     const guid = '12345678-1234-1234-1234-123456789abc';
     const tokens = tokenize(guid);

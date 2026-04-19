@@ -22,6 +22,10 @@
         {
           "name": "constant.character.escape.skobko",
           "match": "\\\\."
+        },
+        {
+          "name": "constant.character.escape.quote.skobko",
+          "match": "\"\""
         }
       ]
     },

@@ -57,6 +57,11 @@ export function tokenize(text: string): Token[] {
           j += 2;
           continue;
         }
+        // Удвоенная кавычка "" — литеральная кавычка внутри строки (одно значение).
+        if (c === '"' && j + 1 < len && text[j + 1] === '"') {
+          j += 2;
+          continue;
+        }
         if (c === '"') {
           j++;
           break;
